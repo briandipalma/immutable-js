@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -7,18 +7,18 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import "Sequence"
-import "Map"
-import "invariant"
-import "TrieUtils"
-/* global Sequence, Map, MapPrototype, invariant, DELETE */
-/* exported Record */
+import { KeyedIterable } from './Iterable'
+import { KeyedCollection } from './Collection'
+import { Map, MapPrototype, emptyMap } from './Map'
+import { DELETE } from './TrieUtils'
+
+import invariant from './utils/invariant'
 
 
-class Record extends Sequence {
+export class Record extends KeyedCollection {
 
   constructor(defaultValues, name) {
-    var RecordType = function(values) {
+    var RecordType = function Record(values) {
       if (!(this instanceof RecordType)) {
         return new RecordType(values);
       }
@@ -32,10 +32,10 @@ class Record extends Sequence {
     name && (RecordTypePrototype._name = name);
     RecordTypePrototype._defaultValues = defaultValues;
     RecordTypePrototype._keys = keys;
-    RecordTypePrototype.length = keys.length;
+    RecordTypePrototype.size = keys.length;
 
     try {
-      Sequence(defaultValues).forEach((_, key) => {
+      keys.forEach(key => {
         Object.defineProperty(RecordType.prototype, key, {
           get: function() {
             return this.get(key);
@@ -54,7 +54,7 @@ class Record extends Sequence {
   }
 
   toString() {
-    return this.__toString(this._name + ' {', '}');
+    return this.__toString(recordName(this) + ' {', '}');
   }
 
   // @pragma Access
@@ -64,28 +64,29 @@ class Record extends Sequence {
   }
 
   get(k, notSetValue) {
-    if (notSetValue !== undefined && !this.has(k)) {
+    if (!this.has(k)) {
       return notSetValue;
     }
-    return this._map.get(k, this._defaultValues[k]);
+    var defaultVal = this._defaultValues[k];
+    return this._map ? this._map.get(k, defaultVal) : defaultVal;
   }
 
   // @pragma Modification
 
   clear() {
     if (this.__ownerID) {
-      this._map.clear();
+      this._map && this._map.clear();
       return this;
     }
     var SuperRecord = Object.getPrototypeOf(this).constructor;
-    return SuperRecord._empty || (SuperRecord._empty = makeRecord(this, Map.empty()));
+    return SuperRecord._empty || (SuperRecord._empty = makeRecord(this, emptyMap()));
   }
 
   set(k, v) {
     if (!this.has(k)) {
-      throw new Error('Cannot set unknown key "' + k + '" on ' + this._name);
+      throw new Error('Cannot set unknown key "' + k + '" on ' + recordName(this));
     }
-    var newMap = this._map.set(k, v);
+    var newMap = this._map && this._map.set(k, v);
     if (this.__ownerID || newMap === this._map) {
       return this;
     }
@@ -93,26 +94,14 @@ class Record extends Sequence {
   }
 
   remove(k) {
-    if (k == null || !this.has(k)) {
+    if (!this.has(k)) {
       return this;
     }
-    var newMap = this._map.remove(k);
+    var newMap = this._map && this._map.remove(k);
     if (this.__ownerID || newMap === this._map) {
       return this;
     }
     return makeRecord(this, newMap);
-  }
-
-  keys() {
-    return this._map.keys();
-  }
-
-  values() {
-    return this._map.values();
-  }
-
-  entries() {
-    return this._map.entries();
   }
 
   wasAltered() {
@@ -120,11 +109,11 @@ class Record extends Sequence {
   }
 
   __iterator(type, reverse) {
-    return this._map.__iterator(type, reverse);
+    return KeyedIterable(this._defaultValues).map((_, k) => this.get(k)).__iterator(type, reverse);
   }
 
   __iterate(fn, reverse) {
-    return Sequence(this._defaultValues).map((_, k) => this.get(k)).__iterate(fn, reverse);
+    return KeyedIterable(this._defaultValues).map((_, k) => this.get(k)).__iterate(fn, reverse);
   }
 
   __ensureOwner(ownerID) {
@@ -142,15 +131,18 @@ class Record extends Sequence {
 }
 
 var RecordPrototype = Record.prototype;
-RecordPrototype._name = 'Record';
 RecordPrototype[DELETE] = RecordPrototype.remove;
+RecordPrototype.deleteIn =
+RecordPrototype.removeIn = MapPrototype.removeIn;
 RecordPrototype.merge = MapPrototype.merge;
 RecordPrototype.mergeWith = MapPrototype.mergeWith;
+RecordPrototype.mergeIn = MapPrototype.mergeIn;
 RecordPrototype.mergeDeep = MapPrototype.mergeDeep;
 RecordPrototype.mergeDeepWith = MapPrototype.mergeDeepWith;
+RecordPrototype.mergeDeepIn = MapPrototype.mergeDeepIn;
+RecordPrototype.setIn = MapPrototype.setIn;
 RecordPrototype.update = MapPrototype.update;
 RecordPrototype.updateIn = MapPrototype.updateIn;
-RecordPrototype.cursor = MapPrototype.cursor;
 RecordPrototype.withMutations = MapPrototype.withMutations;
 RecordPrototype.asMutable = MapPrototype.asMutable;
 RecordPrototype.asImmutable = MapPrototype.asImmutable;
@@ -161,4 +153,8 @@ function makeRecord(likeRecord, map, ownerID) {
   record._map = map;
   record.__ownerID = ownerID;
   return record;
+}
+
+function recordName(record) {
+  return record._name || record.constructor.name;
 }

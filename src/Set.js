@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -7,38 +7,36 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import "Sequence"
-import "Map"
-import "TrieUtils"
-import "Iterator"
-/* global Sequence, IndexedSequencePrototype, Map, MapPrototype, DELETE,
-          ITERATOR_SYMBOL */
-/* exported Set */
+import { SetIterable, KeyedIterable } from './Iterable'
+import { SetCollection } from './Collection'
+import { emptyMap, MapPrototype } from './Map'
+import { DELETE } from './TrieUtils'
+import { sortFactory } from './Operations'
+import assertNotInfinite from './utils/assertNotInfinite'
+
+import { OrderedSet } from './OrderedSet'
 
 
-class Set extends Sequence {
+export class Set extends SetCollection {
 
   // @pragma Construction
 
-  constructor(...values) {
-    return Set.from(values);
+  constructor(value) {
+    return value === null || value === undefined ? emptySet() :
+      isSet(value) ? value :
+      emptySet().withMutations(set => {
+        var iter = SetIterable(value);
+        assertNotInfinite(iter.size);
+        iter.forEach(v => set.add(v));
+      });
   }
 
-  static empty() {
-    return EMPTY_SET || (EMPTY_SET = makeSet(Map.empty()));
+  static of(/*...values*/) {
+    return this(arguments);
   }
 
-  static from(sequence) {
-    var set = Set.empty();
-    return sequence ?
-      sequence.constructor === Set ?
-        sequence :
-        set.union(sequence) :
-      set;
-  }
-
-  static fromKeys(sequence) {
-    return Set.from(Sequence(sequence).flip());
+  static fromKeys(value) {
+    return this(KeyedIterable(value).keySeq());
   }
 
   toString() {
@@ -47,109 +45,87 @@ class Set extends Sequence {
 
   // @pragma Access
 
-  get(value, notSetValue) {
-    return this._map.has(value) ? value : notSetValue;
-  }
-
-  contains(value) {
+  has(value) {
     return this._map.has(value);
   }
 
   // @pragma Modification
 
   add(value) {
-    var newMap = this._map.set(value, null);
-    if (this.__ownerID) {
-      this.length = newMap.length;
-      this._map = newMap;
-      return this;
-    }
-    return newMap === this._map ? this : makeSet(newMap);
+    return updateSet(this, this._map.set(value, true));
   }
 
   remove(value) {
-    var newMap = this._map.remove(value);
-    if (this.__ownerID) {
-      this.length = newMap.length;
-      this._map = newMap;
-      return this;
-    }
-    return newMap === this._map ? this : newMap.length === 0 ? Set.empty() : makeSet(newMap);
+    return updateSet(this, this._map.remove(value));
   }
 
   clear() {
-    if (this.length === 0) {
-      return this;
-    }
-    if (this.__ownerID) {
-      this.length = 0;
-      this._map.clear();
-      return this;
-    }
-    return Set.empty();
+    return updateSet(this, this._map.clear());
   }
 
   // @pragma Composition
 
-  union(/*...seqs*/) {
-    var seqs = arguments;
-    if (seqs.length === 0) {
+  union(...iters) {
+    iters = iters.filter(x => x.size !== 0);
+    if (iters.length === 0) {
       return this;
     }
+    if (this.size === 0 && iters.length === 1) {
+      return this.constructor(iters[0]);
+    }
     return this.withMutations(set => {
-      for (var ii = 0; ii < seqs.length; ii++) {
-        Sequence(seqs[ii]).forEach(value => set.add(value));
+      for (var ii = 0; ii < iters.length; ii++) {
+        SetIterable(iters[ii]).forEach(value => set.add(value));
       }
     });
   }
 
-  intersect(...seqs) {
-    if (seqs.length === 0) {
+  intersect(...iters) {
+    if (iters.length === 0) {
       return this;
     }
-    seqs = seqs.map(seq => Sequence(seq));
+    iters = iters.map(iter => SetIterable(iter));
     var originalSet = this;
     return this.withMutations(set => {
       originalSet.forEach(value => {
-        if (!seqs.every(seq => seq.contains(value))) {
+        if (!iters.every(iter => iter.contains(value))) {
           set.remove(value);
         }
       });
     });
   }
 
-  subtract(...seqs) {
-    if (seqs.length === 0) {
+  subtract(...iters) {
+    if (iters.length === 0) {
       return this;
     }
-    seqs = seqs.map(seq => Sequence(seq));
+    iters = iters.map(iter => SetIterable(iter));
     var originalSet = this;
     return this.withMutations(set => {
       originalSet.forEach(value => {
-        if (seqs.some(seq => seq.contains(value))) {
+        if (iters.some(iter => iter.contains(value))) {
           set.remove(value);
         }
       });
     });
-  }
-
-  isSubset(seq) {
-    seq = Sequence(seq);
-    return this.every(value => seq.contains(value));
-  }
-
-  isSuperset(seq) {
-    var set = this;
-    seq = Sequence(seq);
-    return seq.every(value => set.contains(value));
   }
 
   merge() {
     return this.union.apply(this, arguments);
   }
 
-  mergeWith(merger, ...seqs) {
-    return this.union.apply(this, seqs);
+  mergeWith(merger, ...iters) {
+    return this.union.apply(this, iters);
+  }
+
+  sort(comparator) {
+    // Late binding
+    return OrderedSet(sortFactory(this, comparator));
+  }
+
+  sortBy(mapper, comparator) {
+    // Late binding
+    return OrderedSet(sortFactory(this, comparator, mapper));
   }
 
   wasAltered() {
@@ -174,28 +150,50 @@ class Set extends Sequence {
       this._map = newMap;
       return this;
     }
-    return makeSet(newMap, ownerID);
+    return this.__make(newMap, ownerID);
   }
 }
 
+export function isSet(maybeSet) {
+  return !!(maybeSet && maybeSet[IS_SET_SENTINEL]);
+}
+
+Set.isSet = isSet;
+
+var IS_SET_SENTINEL = '@@__IMMUTABLE_SET__@@';
+
 var SetPrototype = Set.prototype;
+SetPrototype[IS_SET_SENTINEL] = true;
 SetPrototype[DELETE] = SetPrototype.remove;
-SetPrototype[ITERATOR_SYMBOL] = SetPrototype.values;
 SetPrototype.mergeDeep = SetPrototype.merge;
 SetPrototype.mergeDeepWith = SetPrototype.mergeWith;
 SetPrototype.withMutations = MapPrototype.withMutations;
 SetPrototype.asMutable = MapPrototype.asMutable;
 SetPrototype.asImmutable = MapPrototype.asImmutable;
-SetPrototype.__toJS = IndexedSequencePrototype.__toJS;
-SetPrototype.__toStringMapper = IndexedSequencePrototype.__toStringMapper;
 
+SetPrototype.__empty = emptySet;
+SetPrototype.__make = makeSet;
+
+function updateSet(set, newMap) {
+  if (set.__ownerID) {
+    set.size = newMap.size;
+    set._map = newMap;
+    return set;
+  }
+  return newMap === set._map ? set :
+    newMap.size === 0 ? set.__empty() :
+    set.__make(newMap);
+}
 
 function makeSet(map, ownerID) {
   var set = Object.create(SetPrototype);
-  set.length = map ? map.length : 0;
+  set.size = map ? map.size : 0;
   set._map = map;
   set.__ownerID = ownerID;
   return set;
 }
 
 var EMPTY_SET;
+function emptySet() {
+  return EMPTY_SET || (EMPTY_SET = makeSet(emptyMap()));
+}

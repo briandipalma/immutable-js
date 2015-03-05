@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -7,28 +7,29 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import "Map"
-import "Vector"
-import "TrieUtils"
-/* global Map, Vector, DELETE, NOT_SET */
-/* exported OrderedMap */
+import { KeyedIterable, IS_ORDERED_SENTINEL, isOrdered } from './Iterable'
+import { Map, isMap, emptyMap } from './Map'
+import { emptyList } from './List'
+import { DELETE, NOT_SET, SIZE } from './TrieUtils'
+import assertNotInfinite from './utils/assertNotInfinite'
 
 
-class OrderedMap extends Map {
+export class OrderedMap extends Map {
 
   // @pragma Construction
 
-  constructor(sequence) {
-    var map = OrderedMap.empty();
-    return sequence ?
-      sequence.constructor === OrderedMap ?
-        sequence :
-        map.merge(sequence) :
-      map;
+  constructor(value) {
+    return value === null || value === undefined ? emptyOrderedMap() :
+      isOrderedMap(value) ? value :
+      emptyOrderedMap().withMutations(map => {
+        var iter = KeyedIterable(value);
+        assertNotInfinite(iter.size);
+        iter.forEach((v, k) => map.set(k, v));
+      });
   }
 
-  static empty() {
-    return EMPTY_ORDERED_MAP || (EMPTY_ORDERED_MAP = makeOrderedMap(Map.empty(), Vector.empty()));
+  static of(/*...values*/) {
+    return this(arguments);
   }
 
   toString() {
@@ -39,22 +40,22 @@ class OrderedMap extends Map {
 
   get(k, notSetValue) {
     var index = this._map.get(k);
-    return index != null ? this._vector.get(index)[1] : notSetValue;
+    return index !== undefined ? this._list.get(index)[1] : notSetValue;
   }
 
   // @pragma Modification
 
   clear() {
-    if (this.length === 0) {
+    if (this.size === 0) {
       return this;
     }
     if (this.__ownerID) {
-      this.length = 0;
+      this.size = 0;
       this._map.clear();
-      this._vector.clear();
+      this._list.clear();
       return this;
     }
-    return OrderedMap.empty();
+    return emptyOrderedMap();
   }
 
   set(k, v) {
@@ -66,18 +67,18 @@ class OrderedMap extends Map {
   }
 
   wasAltered() {
-    return this._map.wasAltered() || this._vector.wasAltered();
+    return this._map.wasAltered() || this._list.wasAltered();
   }
 
   __iterate(fn, reverse) {
-    return this._vector.__iterate(
+    return this._list.__iterate(
       entry => entry && fn(entry[1], entry[0], this),
       reverse
     );
   }
 
   __iterator(type, reverse) {
-    return this._vector.fromEntrySeq().__iterator(type, reverse);
+    return this._list.fromEntrySeq().__iterator(type, reverse);
   }
 
   __ensureOwner(ownerID) {
@@ -85,52 +86,82 @@ class OrderedMap extends Map {
       return this;
     }
     var newMap = this._map.__ensureOwner(ownerID);
-    var newVector = this._vector.__ensureOwner(ownerID);
+    var newList = this._list.__ensureOwner(ownerID);
     if (!ownerID) {
       this.__ownerID = ownerID;
       this._map = newMap;
-      this._vector = newVector;
+      this._list = newList;
       return this;
     }
-    return makeOrderedMap(newMap, newVector, ownerID, this.__hash);
+    return makeOrderedMap(newMap, newList, ownerID, this.__hash);
   }
 }
 
-OrderedMap.from = OrderedMap;
+function isOrderedMap(maybeOrderedMap) {
+  return isMap(maybeOrderedMap) && isOrdered(maybeOrderedMap);
+}
+
+OrderedMap.isOrderedMap = isOrderedMap;
+
+OrderedMap.prototype[IS_ORDERED_SENTINEL] = true;
 OrderedMap.prototype[DELETE] = OrderedMap.prototype.remove;
 
-function makeOrderedMap(map, vector, ownerID, hash) {
+
+
+function makeOrderedMap(map, list, ownerID, hash) {
   var omap = Object.create(OrderedMap.prototype);
-  omap.length = map ? map.length : 0;
+  omap.size = map ? map.size : 0;
   omap._map = map;
-  omap._vector = vector;
+  omap._list = list;
   omap.__ownerID = ownerID;
   omap.__hash = hash;
   return omap;
 }
 
+var EMPTY_ORDERED_MAP;
+export function emptyOrderedMap() {
+  return EMPTY_ORDERED_MAP || (EMPTY_ORDERED_MAP = makeOrderedMap(emptyMap(), emptyList()));
+}
+
 function updateOrderedMap(omap, k, v) {
   var map = omap._map;
-  var vector = omap._vector;
+  var list = omap._list;
   var i = map.get(k);
   var has = i !== undefined;
-  var removed = v === NOT_SET;
-  if ((!has && removed) || (has && v === vector.get(i)[1])) {
-    return omap;
+  var newMap;
+  var newList;
+  if (v === NOT_SET) { // removed
+    if (!has) {
+      return omap;
+    }
+    if (list.size >= SIZE && list.size >= map.size * 2) {
+      newList = list.filter((entry, idx) => entry !== undefined && i !== idx);
+      newMap = newList.toKeyedSeq().map(entry => entry[0]).flip().toMap();
+      if (omap.__ownerID) {
+        newMap.__ownerID = newList.__ownerID = omap.__ownerID;
+      }
+    } else {
+      newMap = map.remove(k);
+      newList = i === list.size - 1 ? list.pop() : list.set(i, undefined);
+    }
+  } else {
+    if (has) {
+      if (v === list.get(i)[1]) {
+        return omap;
+      }
+      newMap = map;
+      newList = list.set(i, [k, v]);
+    } else {
+      newMap = map.set(k, list.size);
+      newList = list.set(list.size, [k, v]);
+    }
   }
-  if (!has) {
-    i = vector.length;
-  }
-  var newMap = removed ? map.remove(k) : has ? map : map.set(k, i);
-  var newVector = removed ? vector.remove(i) : vector.set(i, [k, v]);
   if (omap.__ownerID) {
-    omap.length = newMap.length;
+    omap.size = newMap.size;
     omap._map = newMap;
-    omap._vector = newVector;
+    omap._list = newList;
     omap.__hash = undefined;
     return omap;
   }
-  return makeOrderedMap(newMap, newVector);
+  return makeOrderedMap(newMap, newList);
 }
-
-var EMPTY_ORDERED_MAP;

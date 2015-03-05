@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -7,33 +7,40 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import "Sequence"
-import "Map"
-import "Vector"
-import "Stack"
-import "Set"
-import "OrderedMap"
-import "Record"
-import "Range"
-import "Repeat"
-import "is"
-import "fromJS"
-import "Cursor" // Solve circular dependency
-/* global Sequence, Map, Vector, Stack, Set, OrderedMap, Record, Range, Repeat,
-          is, fromJS */
-/* exported Immutable */
+import { Seq } from './Seq'
+import { Collection } from './Collection'
+import { OrderedMap } from './OrderedMap'
+import { List } from './List'
+import { Map } from './Map'
+import { Stack } from './Stack'
+import { OrderedSet } from './OrderedSet'
+import { Set } from './Set'
+import { Record } from './Record'
+import { Range } from './Range'
+import { Repeat } from './Repeat'
+import { is } from './is'
+import { fromJS } from './fromJS'
+import { Iterable } from './IterableImpl'
 
 
-var Immutable = {
-  Sequence: Sequence,
+export default {
+
+  Iterable: Iterable,
+
+  Seq: Seq,
+  Collection: Collection,
   Map: Map,
-  Vector: Vector,
+  OrderedMap: OrderedMap,
+  List: List,
   Stack: Stack,
   Set: Set,
-  OrderedMap: OrderedMap,
+  OrderedSet: OrderedSet,
+
   Record: Record,
   Range: Range,
   Repeat: Repeat,
+
   is: is,
   fromJS: fromJS,
+
 };

@@ -1,12 +1,15 @@
 ///<reference path='../resources/jest.d.ts'/>
-///<reference path='../dist/Immutable.d.ts'/>
+///<reference path='../dist/immutable.d.ts'/>
 
 jest.autoMockOff();
+
+import jasmineCheck = require('jasmine-check');
+jasmineCheck.install();
 
 import Immutable = require('immutable');
 import Map = Immutable.Map;
 import OrderedMap = Immutable.OrderedMap;
-import Vector = Immutable.Vector;
+import List = Immutable.List;
 
 declare function expect(val: any): ExpectWithIs;
 
@@ -42,6 +45,7 @@ describe('Conversion', () => {
       a: "A",
       b: "B"
     },
+    emptyMap: Object.create(null),
     point: {x: 10, y: 20},
     string: "Hello",
     list: [1, 2, 3]
@@ -50,7 +54,7 @@ describe('Conversion', () => {
   var Point = Immutable.Record({x:0, y:0}, 'Point');
 
   var immutableData = Map({
-    deepList: Vector(
+    deepList: List.of(
       Map({
         position: "first"
       }),
@@ -65,13 +69,14 @@ describe('Conversion', () => {
       a: "A",
       b: "B"
     }),
+    emptyMap: Map(),
     point: Map({x: 10, y: 20}),
     string: "Hello",
-    list: Vector(1, 2, 3)
+    list: List.of(1, 2, 3)
   });
 
   var immutableOrderedData = OrderedMap({
-    deepList: Vector(
+    deepList: List.of(
       OrderedMap({
         position: "first"
       }),
@@ -86,13 +91,14 @@ describe('Conversion', () => {
       a: "A",
       b: "B"
     }),
+    emptyMap: OrderedMap(),
     point: new Point({x: 10, y: 20}),
     string: "Hello",
-    list: Vector(1, 2, 3)
+    list: List.of(1, 2, 3)
   });
 
   var immutableOrderedDataString = 'OrderedMap { ' +
-    'deepList: Vector [ '+
+    'deepList: List [ '+
       'OrderedMap { '+
         'position: "first"'+
       ' }, ' +
@@ -107,9 +113,10 @@ describe('Conversion', () => {
       'a: "A", '+
       'b: "B"'+
     ' }, '+
+    'emptyMap: OrderedMap {}, ' +
     'point: Point { x: 10, y: 20 }, '+
     'string: "Hello", '+
-    'list: Vector [ 1, 2, 3 ]'+
+    'list: List [ 1, 2, 3 ]'+
   ' }';
 
   it('Converts deep JS to deep immutable sequences', () => {
@@ -121,7 +128,7 @@ describe('Conversion', () => {
       if (key === 'point') {
         return new Point(sequence);
       }
-      return Array.isArray(this[key]) ? sequence.toVector() : sequence.toOrderedMap();
+      return Array.isArray(this[key]) ? sequence.toList() : sequence.toOrderedMap();
     });
     expect(seq).is(immutableOrderedData);
     expect(seq.toString()).is(immutableOrderedDataString);
@@ -135,6 +142,29 @@ describe('Conversion', () => {
 
   it('JSON.stringify() works equivalently on immutable sequences', () => {
     expect(JSON.stringify(js)).toBe(JSON.stringify(immutableData));
+  });
+
+  it('JSON.stringify() respects toJSON methods on values', () => {
+    var Model = Immutable.Record({});
+    Model.prototype.toJSON = function() { return 'model'; }
+    expect(
+      Immutable.Map({ a: new Model() }).toJS()
+    ).toEqual({ "a": {} });
+    expect(
+      JSON.stringify(Immutable.Map({ a: new Model() }))
+    ).toEqual('{"a":"model"}');
+  });
+
+  it('is conservative with array-likes, only accepting true Arrays.', () => {
+    expect(Immutable.fromJS({1: 2, length: 3})).is(
+      Immutable.Map().set('1', 2).set('length', 3)
+    );
+    expect(Immutable.fromJS('string')).toEqual('string');
+  });
+
+  check.it('toJS isomorphic value', {maxSize: 30}, [gen.JSONValue], (js) => {
+    var imm = Immutable.fromJS(js);
+    expect(imm && imm.toJS ? imm.toJS() : imm).toEqual(js);
   });
 
 });

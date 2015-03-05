@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -7,37 +7,39 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import "Sequence"
-import "Range"
-import "is"
-import "Iterator"
-/* global IndexedSequence, RangePrototype, is,
-          Iterator, iteratorValue, iteratorDone */
-/* exported Repeat */
+import { wholeSlice, resolveBegin, resolveEnd } from './TrieUtils'
+import { IndexedSeq } from './Seq'
+import { is } from './is'
+import { Iterator, iteratorValue, iteratorDone } from './Iterator'
+
+import deepEqual from './utils/deepEqual'
 
 
 /**
- * Returns a lazy seq of `value` repeated `times` times. When `times` is
+ * Returns a lazy Seq of `value` repeated `times` times. When `times` is
  * undefined, returns an infinite sequence of `value`.
  */
-class Repeat extends IndexedSequence {
+export class Repeat extends IndexedSeq {
 
   constructor(value, times) {
-    if (times === 0 && EMPTY_REPEAT) {
-      return EMPTY_REPEAT;
-    }
     if (!(this instanceof Repeat)) {
       return new Repeat(value, times);
     }
     this._value = value;
-    this.length = times == null ? Infinity : Math.max(0, times);
+    this.size = times === undefined ? Infinity : Math.max(0, times);
+    if (this.size === 0) {
+      if (EMPTY_REPEAT) {
+        return EMPTY_REPEAT;
+      }
+      EMPTY_REPEAT = this;
+    }
   }
 
   toString() {
-    if (this.length === 0) {
+    if (this.size === 0) {
       return 'Repeat []';
     }
-    return 'Repeat [ ' + this._value + ' ' + this.length + ' times ]';
+    return 'Repeat [ ' + this._value + ' ' + this.size + ' times ]';
   }
 
   get(index, notSetValue) {
@@ -49,10 +51,9 @@ class Repeat extends IndexedSequence {
   }
 
   slice(begin, end) {
-    var length = this.length;
-    begin = begin < 0 ? Math.max(0, length + begin) : Math.min(length, begin);
-    end = end == null ? length : end > 0 ? Math.min(length, end) : Math.max(0, length + end);
-    return end > begin ? new Repeat(this._value, end - begin) : EMPTY_REPEAT;
+    var size = this.size;
+    return wholeSlice(begin, end, size) ? this :
+      new Repeat(this._value, resolveEnd(end, size) - resolveBegin(begin, size));
   }
 
   reverse() {
@@ -68,13 +69,13 @@ class Repeat extends IndexedSequence {
 
   lastIndexOf(searchValue) {
     if (is(this._value, searchValue)) {
-      return this.length;
+      return this.size;
     }
     return -1;
   }
 
   __iterate(fn, reverse) {
-    for (var ii = 0; ii < this.length; ii++) {
+    for (var ii = 0; ii < this.size; ii++) {
       if (fn(this._value, ii, this) === false) {
         return ii + 1;
       }
@@ -85,23 +86,15 @@ class Repeat extends IndexedSequence {
   __iterator(type, reverse) {
     var ii = 0;
     return new Iterator(() =>
-      ii < this.length ? iteratorValue(type, ii++, this._value) : iteratorDone()
+      ii < this.size ? iteratorValue(type, ii++, this._value) : iteratorDone()
     );
   }
 
-  __deepEquals(other) {
+  equals(other) {
     return other instanceof Repeat ?
       is(this._value, other._value) :
-      super.__deepEquals(other);
+      deepEqual(other);
   }
 }
 
-var RepeatPrototype = Repeat.prototype;
-RepeatPrototype.last = RepeatPrototype.first;
-RepeatPrototype.has = RangePrototype.has;
-RepeatPrototype.take = RangePrototype.take;
-RepeatPrototype.skip = RangePrototype.skip;
-RepeatPrototype.__toJS = RangePrototype.__toJS;
-
-
-var EMPTY_REPEAT = new Repeat(undefined, 0);
+var EMPTY_REPEAT;

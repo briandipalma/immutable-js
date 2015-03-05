@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -7,36 +7,45 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-/* global Symbol */
-/* exported hash, HASH_MAX_VAL */
+import { smi } from './Math'
 
-function hash(o) {
-  if (!o) { // false, 0, and null
+export function hash(o) {
+  if (o === false || o === null || o === undefined) {
     return 0;
+  }
+  if (typeof o.valueOf === 'function') {
+    o = o.valueOf();
+    if (o === false || o === null || o === undefined) {
+      return 0;
+    }
   }
   if (o === true) {
     return 1;
   }
   var type = typeof o;
   if (type === 'number') {
-    if ((o | 0) === o) {
-      return o & HASH_MAX_VAL;
+    var h = o | 0;
+    if (h !== o) {
+      h ^= o * 0xFFFFFFFF;
     }
-    o = '' + o;
-    type = 'string';
+    while (o > 0xFFFFFFFF) {
+      o /= 0xFFFFFFFF;
+      h ^= o;
+    }
+    return smi(h);
   }
   if (type === 'string') {
     return o.length > STRING_HASH_CACHE_MIN_STRLEN ? cachedHashString(o) : hashString(o);
   }
-  if (o.hashCode) {
-    return hash(typeof o.hashCode === 'function' ? o.hashCode() : o.hashCode);
+  if (typeof o.hashCode === 'function') {
+    return o.hashCode();
   }
   return hashJSObj(o);
 }
 
 function cachedHashString(string) {
   var hash = stringHashCache[string];
-  if (hash == null) {
+  if (hash === undefined) {
     hash = hashString(string);
     if (STRING_HASH_CACHE_SIZE === STRING_HASH_CACHE_MAX_SIZE) {
       STRING_HASH_CACHE_SIZE = 0;
@@ -58,13 +67,16 @@ function hashString(string) {
   // (exclusive) by dropping high bits.
   var hash = 0;
   for (var ii = 0; ii < string.length; ii++) {
-    hash = (31 * hash + string.charCodeAt(ii)) & HASH_MAX_VAL;
+    hash = 31 * hash + string.charCodeAt(ii) | 0;
   }
-  return hash;
+  return smi(hash);
 }
 
 function hashJSObj(obj) {
-  var hash = obj[UID_HASH_KEY];
+  var hash = weakMap && weakMap.get(obj);
+  if (hash) return hash;
+
+  hash = obj[UID_HASH_KEY];
   if (hash) return hash;
 
   if (!canDefineProperty) {
@@ -75,47 +87,51 @@ function hashJSObj(obj) {
     if (hash) return hash;
   }
 
-  if (!canDefineProperty || Object.isExtensible(obj)) {
-    hash = ++objHashUID & HASH_MAX_VAL;
-
-    if (canDefineProperty) {
-      Object.defineProperty(obj, UID_HASH_KEY, {
-        'enumerable': false,
-        'configurable': false,
-        'writable': false,
-        'value': hash
-      });
-    } else if (propertyIsEnumerable &&
-               obj.propertyIsEnumerable === propertyIsEnumerable) {
-      // Since we can't define a non-enumerable property on the object
-      // we'll hijack one of the less-used non-enumerable properties to
-      // save our hash on it. Since this is a function it will not show up in
-      // `JSON.stringify` which is what we want.
-      obj.propertyIsEnumerable = function() {
-        return propertyIsEnumerable.apply(this, arguments);
-      };
-      obj.propertyIsEnumerable[UID_HASH_KEY] = hash;
-    } else if (obj.nodeType) {
-      // At this point we couldn't get the IE `uniqueID` to use as a hash
-      // and we couldn't use a non-enumerable property to exploit the
-      // dontEnum bug so we simply add the `UID_HASH_KEY` on the node
-      // itself.
-      obj[UID_HASH_KEY] = hash;
-    } else {
-      throw new Error('Unable to set a non-enumerable property on object.');
-    }
-    return hash;
-  } else {
+  if (Object.isExtensible && !Object.isExtensible(obj)) {
     throw new Error('Non-extensible objects are not allowed as keys.');
   }
-}
 
-var propertyIsEnumerable = Object.prototype.propertyIsEnumerable;
+  hash = ++objHashUID;
+  if (objHashUID & 0x40000000) {
+    objHashUID = 0;
+  }
+
+  if (weakMap) {
+    weakMap.set(obj, hash);
+  } else if (canDefineProperty) {
+    Object.defineProperty(obj, UID_HASH_KEY, {
+      'enumerable': false,
+      'configurable': false,
+      'writable': false,
+      'value': hash
+    });
+  } else if (obj.propertyIsEnumerable &&
+             obj.propertyIsEnumerable === obj.constructor.prototype.propertyIsEnumerable) {
+    // Since we can't define a non-enumerable property on the object
+    // we'll hijack one of the less-used non-enumerable properties to
+    // save our hash on it. Since this is a function it will not show up in
+    // `JSON.stringify` which is what we want.
+    obj.propertyIsEnumerable = function() {
+      return this.constructor.prototype.propertyIsEnumerable.apply(this, arguments);
+    };
+    obj.propertyIsEnumerable[UID_HASH_KEY] = hash;
+  } else if (obj.nodeType) {
+    // At this point we couldn't get the IE `uniqueID` to use as a hash
+    // and we couldn't use a non-enumerable property to exploit the
+    // dontEnum bug so we simply add the `UID_HASH_KEY` on the node
+    // itself.
+    obj[UID_HASH_KEY] = hash;
+  } else {
+    throw new Error('Unable to set a non-enumerable property on object.');
+  }
+
+  return hash;
+}
 
 // True if Object.defineProperty works as expected. IE8 fails this test.
 var canDefineProperty = (function() {
   try {
-    Object.defineProperty({}, 'x', {});
+    Object.defineProperty({}, '@', {});
     return true;
   } catch (e) {
     return false;
@@ -135,12 +151,13 @@ function getIENodeHash(node) {
   }
 }
 
-var HASH_MAX_VAL = 0x7FFFFFFF; // 2^31 - 1 is an efficiently stored int
+// If possible, use a WeakMap.
+var weakMap = typeof WeakMap === 'function' && new WeakMap();
 
 var objHashUID = 0;
 
 var UID_HASH_KEY = '__immutablehash__';
-if (typeof Symbol !== 'undefined') {
+if (typeof Symbol === 'function') {
   UID_HASH_KEY = Symbol(UID_HASH_KEY);
 }
 

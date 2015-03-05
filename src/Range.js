@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -7,14 +7,12 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import "Sequence"
-import "Vector"
-import "invariant"
-import "Iterator"
-/* global IndexedSequence, wholeSlice, resolveBegin, resolveEnd,
-          VectorPrototype, wrapIndex, invariant,
-          Iterator, iteratorValue, iteratorDone */
-/* exported Range, RangePrototype */
+import { wrapIndex, wholeSlice, resolveBegin, resolveEnd } from './TrieUtils'
+import { IndexedSeq } from './Seq'
+import { Iterator, iteratorValue, iteratorDone } from './Iterator'
+
+import invariant from './utils/invariant'
+import deepEqual from './utils/deepEqual'
 
 
 /**
@@ -22,7 +20,7 @@ import "Iterator"
  * (exclusive), by step, where start defaults to 0, step to 1, and end to
  * infinity. When start is equal to end, returns empty list.
  */
-class Range extends IndexedSequence {
+export class Range extends IndexedSeq {
 
   constructor(start, end, step) {
     if (!(this instanceof Range)) {
@@ -30,24 +28,27 @@ class Range extends IndexedSequence {
     }
     invariant(step !== 0, 'Cannot step a Range by 0');
     start = start || 0;
-    if (end == null) {
+    if (end === undefined) {
       end = Infinity;
     }
-    if (start === end && __EMPTY_RANGE) {
-      return __EMPTY_RANGE;
-    }
-    step = step == null ? 1 : Math.abs(step);
+    step = step === undefined ? 1 : Math.abs(step);
     if (end < start) {
       step = -step;
     }
     this._start = start;
     this._end = end;
     this._step = step;
-    this.length = Math.max(0, Math.ceil((end - start) / step - 1) + 1);
+    this.size = Math.max(0, Math.ceil((end - start) / step - 1) + 1);
+    if (this.size === 0) {
+      if (EMPTY_RANGE) {
+        return EMPTY_RANGE;
+      }
+      EMPTY_RANGE = this;
+    }
   }
 
   toString() {
-    if (this.length === 0) {
+    if (this.size === 0) {
       return 'Range []';
     }
     return 'Range [ ' +
@@ -65,18 +66,18 @@ class Range extends IndexedSequence {
   contains(searchValue) {
     var possibleIndex = (searchValue - this._start) / this._step;
     return possibleIndex >= 0 &&
-      possibleIndex < this.length &&
+      possibleIndex < this.size &&
       possibleIndex === Math.floor(possibleIndex);
   }
 
   slice(begin, end) {
-    if (wholeSlice(begin, end, this.length)) {
+    if (wholeSlice(begin, end, this.size)) {
       return this;
     }
-    begin = resolveBegin(begin, this.length);
-    end = resolveEnd(end, this.length);
+    begin = resolveBegin(begin, this.size);
+    end = resolveEnd(end, this.size);
     if (end <= begin) {
-      return __EMPTY_RANGE;
+      return new Range(0, 0);
     }
     return new Range(this.get(begin, this._end), this.get(end, this._end), this._step);
   }
@@ -85,7 +86,7 @@ class Range extends IndexedSequence {
     var offsetValue = searchValue - this._start;
     if (offsetValue % this._step === 0) {
       var index = offsetValue / this._step;
-      if (index >= 0 && index < this.length) {
+      if (index >= 0 && index < this.size) {
         return index
       }
     }
@@ -96,16 +97,8 @@ class Range extends IndexedSequence {
     return this.indexOf(searchValue);
   }
 
-  take(amount) {
-    return this.slice(0, Math.max(0, amount));
-  }
-
-  skip(amount) {
-    return this.slice(Math.max(0, amount));
-  }
-
   __iterate(fn, reverse) {
-    var maxIndex = this.length - 1;
+    var maxIndex = this.size - 1;
     var step = this._step;
     var value = reverse ? this._start + maxIndex * step : this._start;
     for (var ii = 0; ii <= maxIndex; ii++) {
@@ -118,7 +111,7 @@ class Range extends IndexedSequence {
   }
 
   __iterator(type, reverse) {
-    var maxIndex = this.length - 1;
+    var maxIndex = this.size - 1;
     var step = this._step;
     var value = reverse ? this._start + maxIndex * step : this._start;
     var ii = 0;
@@ -129,19 +122,13 @@ class Range extends IndexedSequence {
     });
   }
 
-  __deepEquals(other) {
+  equals(other) {
     return other instanceof Range ?
       this._start === other._start &&
       this._end === other._end &&
       this._step === other._step :
-      super.__deepEquals(other);
+      deepEqual(this, other);
   }
 }
 
-var RangePrototype = Range.prototype;
-
-RangePrototype.__toJS = RangePrototype.toArray;
-RangePrototype.first = VectorPrototype.first;
-RangePrototype.last = VectorPrototype.last;
-
-var __EMPTY_RANGE = Range(0, 0);
+var EMPTY_RANGE;

@@ -1,5 +1,5 @@
 ///<reference path='../resources/jest.d.ts'/>
-///<reference path='../dist/Immutable.d.ts'/>
+///<reference path='../dist/immutable.d.ts'/>
 jest.autoMockOff();
 
 import jasmineCheck = require('jasmine-check');
@@ -7,12 +7,21 @@ jasmineCheck.install();
 
 import Immutable = require('immutable');
 
-describe('KeyedIndexedSequence', () => {
+describe('KeyedSeq', () => {
 
-  check.it('is equivalent', [gen.array(gen.int)], (ints) => {
-    var seq = Immutable.Sequence(ints);
+  check.it('it iterates equivalently', [gen.array(gen.int)], (ints) => {
+    var seq = Immutable.Seq(ints);
     var keyed = seq.toKeyedSeq();
-    expect(seq.equals(keyed)).toBe(true);
+
+    var seqEntries = seq.entries();
+    var keyedEntries = keyed.entries();
+
+    var seqStep, keyedStep;
+    do {
+      seqStep = seqEntries.next();
+      keyedStep = keyedEntries.next();
+      expect(keyedStep).toEqual(seqStep);
+    } while (!seqStep.done);
   });
 
   it('maintains keys', () => {

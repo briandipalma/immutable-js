@@ -1,7 +1,10 @@
 ///<reference path='../resources/jest.d.ts'/>
-///<reference path='../dist/Immutable.d.ts'/>
+///<reference path='../dist/immutable.d.ts'/>
 
 jest.autoMockOff();
+
+import jasmineCheck = require('jasmine-check');
+jasmineCheck.install();
 
 import Immutable = require('immutable');
 
@@ -52,12 +55,12 @@ describe('Equality', () => {
   });
 
   it('compares sequences', () => {
-    var arraySeq = Immutable.Sequence(1,2,3);
-    var arraySeq2 = Immutable.Sequence([1,2,3]);
+    var arraySeq = Immutable.Seq.of(1,2,3);
+    var arraySeq2 = Immutable.Seq([1,2,3]);
     expectIs(arraySeq, arraySeq);
-    expectIs(arraySeq, Immutable.Sequence(1,2,3));
+    expectIs(arraySeq, Immutable.Seq.of(1,2,3));
     expectIs(arraySeq2, arraySeq2);
-    expectIs(arraySeq2, Immutable.Sequence([1,2,3]));
+    expectIs(arraySeq2, Immutable.Seq([1,2,3]));
     expectIsNot(arraySeq, [1,2,3]);
     expectIsNot(arraySeq2, [1,2,3]);
     expectIs(arraySeq, arraySeq2);
@@ -65,21 +68,49 @@ describe('Equality', () => {
     expectIs(arraySeq2, arraySeq2.map(x => x));
   });
 
-  it('compares vectors', () => {
-    var vector = Immutable.Vector(1,2,3);
-    expectIs(vector, vector);
-    expectIsNot(vector, [1,2,3]);
+  it('compares lists', () => {
+    var list = Immutable.List.of(1,2,3);
+    expectIs(list, list);
+    expectIsNot(list, [1,2,3]);
 
-    expectIs(vector, Immutable.Sequence(1,2,3));
-    expectIs(vector, Immutable.Vector(1,2,3));
+    expectIs(list, Immutable.Seq.of(1,2,3));
+    expectIs(list, Immutable.List.of(1,2,3));
 
-    var vectorLonger = vector.push(4);
-    expectIsNot(vector, vectorLonger);
-    var vectorShorter = vectorLonger.pop();
-    expect(vector === vectorShorter).toBe(false);
-    expectIs(vector, vectorShorter);
+    var listLonger = list.push(4);
+    expectIsNot(list, listLonger);
+    var listShorter = listLonger.pop();
+    expect(list === listShorter).toBe(false);
+    expectIs(list, listShorter);
   });
 
-  // TODO: more tests
+  var genSimpleVal = gen.returnOneOf(['A', 1]);
+
+  var genVal = gen.oneOf([
+    gen.map(Immutable.List, gen.array(genSimpleVal, 0, 4)),
+    gen.map(Immutable.Set, gen.array(genSimpleVal, 0, 4)),
+    gen.map(Immutable.Map, gen.array(gen.array(genSimpleVal, 2), 0, 4))
+  ]);
+
+  check.it('has symmetric equality', {times: 1000}, [genVal, genVal], (a, b) => {
+    expect(Immutable.is(a, b)).toBe(Immutable.is(b, a));
+  });
+
+  check.it('has hash equality', {times: 1000}, [genVal, genVal], (a, b) => {
+    if (Immutable.is(a, b)) {
+      expect(a.hashCode()).toBe(b.hashCode());
+    }
+  });
+
+  describe('hash', () => {
+
+    it('differentiates decimals', () => {
+      expect(
+        Immutable.Seq.of(1.5).hashCode()
+      ).not.toBe(
+        Immutable.Seq.of(1.6).hashCode()
+      );
+    });
+
+  });
 
 });
